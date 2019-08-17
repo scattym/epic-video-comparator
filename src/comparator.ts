@@ -285,7 +285,8 @@ export class Comparator {
     if (this.config.mediaControls !== false) {
       this.fullScreenWrapper.appendChild(this.createMediaControls());
     }
-
+    this.leftPlayerData.config.type = "application/dash+xml";
+    this.rightPlayerData.config.type = "application/dash+xml";
     this.leftPlayer = newPlayer(this.config.leftUrl, this.config.leftLaUrl, leftVideoWrapper.getElementsByTagName('video')[0], this.leftPlayerData.config);
     this.rightPlayer = newPlayer(this.config.rightUrl, this.config.rightLaUrl, rightVideoWrapper.getElementsByTagName('video')[0], this.rightPlayerData.config);
 
