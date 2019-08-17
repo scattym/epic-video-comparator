@@ -24,6 +24,7 @@ export class Comparator {
 
   private createdEvent = new Event(Events.CREATED_EVENT);
   private fullscreenToggle = new Event(Events.FULLSCREEN_TOGGLE_EVENT);
+  private loadFinishedEvent = new Event(Events.LOAD_FINISHED_EVENT);
 
   constructor(public config: IComparatorConfig, public container: HTMLDivElement) {
     this.setInitialValues();
@@ -618,6 +619,7 @@ export class Comparator {
         this.pause();
       }, 1000);
     }
+    this.container.dispatchEvent(this.loadFinishedEvent);
   }
 
   private onEnded = (evt: Event): void => {
