@@ -1,9 +1,9 @@
 import { IRendition, IStats, newPlayer, Player, PlayerClassType } from '@epiclabs/epic-video-player';
+import * as screenfull from 'screenfull';
 
+import { Events } from './events';
 import { IComparatorConfig, IPlayerData, IStatsConfig, StatsConfig } from './models';
 import { PidController } from './pid-controller';
-
-import * as screenfull from 'screenfull';
 
 export class Comparator {
   private static LIB_PREFIX = 'evc-';
@@ -22,7 +22,10 @@ export class Comparator {
   private isFullScreen = false;
   private statsInterval = undefined;
 
-  constructor(private config: IComparatorConfig, private container: HTMLDivElement) {
+  private createdEvent = new Event(Events.CREATED_EVENT);
+  private fullscreenToggle = new Event(Events.FULLSCREEN_TOGGLE_EVENT);
+
+  constructor(public config: IComparatorConfig, public container: HTMLDivElement) {
     this.setInitialValues();
     this.createVideoComparator();
     this.initListeners();
@@ -65,21 +68,39 @@ export class Comparator {
   }
 
   public toggleFullScreen(): void {
+    this.container.dispatchEvent(this.fullscreenToggle);
     if (this.isFullScreen) {
       screenfull.exit().catch(() => {
         this.isFullScreen = !this.isFullScreen;
         this.toggleFullScreen();
       });
+      try {
+        screen.orientation.unlock();
+      } catch (e) {
+        // Screen API not available
+      }
     } else {
       screenfull.request(this.container).catch(() => {
         this.isFullScreen = !this.isFullScreen;
         this.toggleFullScreen();
       });
+      try {
+        screen.orientation.lock('landscape-primary');
+      } catch (e) {
+        // Screen API not available
+      }
     }
     this.resizePlayers();
   }
 
+  /**
+   * @deprecated since version 0.0.2
+   */
   public setRenditionKbps(player: 'left' | 'right' | Player<PlayerClassType>, kbps: number): IRendition {
+    return this.setRenditionByKbps(player, kbps);
+  }
+
+  public setRenditionByKbps(player: 'left' | 'right' | Player<PlayerClassType>, kbps: number): IRendition {
     if (typeof kbps !== 'number') {
       return;
     }
@@ -109,7 +130,14 @@ export class Comparator {
     return renditions[renditionIndex];
   }
 
+  /**
+   * @deprecated since version 0.0.2
+   */
   public setRenditionIndex(player: 'left' | 'right' | Player<PlayerClassType>, index: number): IRendition {
+    return this.setRenditionByIndex(player, index);
+  }
+
+  public setRenditionByIndex(player: 'left' | 'right' | Player<PlayerClassType>, index: number): IRendition {
     if (typeof index !== 'number') {
       return;
     }
@@ -173,7 +201,7 @@ export class Comparator {
     const statsConfig = this.config.stats as IStatsConfig;
 
     if (statsConfig.showDuration !== false && stats && stats.duration > 0) {
-      inner += `<p><b>Duration:</b> ${Math.round(stats.duration) } s</p>`;
+      inner += `<p><b>Duration:</b> ${Math.round(stats.duration)} s</p>`;
     }
 
     if (statsConfig.showDroppedFrames !== false && stats && stats.droppedFrames >= 0) {
@@ -219,6 +247,12 @@ export class Comparator {
   }
 
   private cleanVideoComparator(): void {
+    if (this.leftPlayer) {
+      this.leftPlayer.destroy();
+    }
+    if (this.rightPlayer) {
+      this.rightPlayer.destroy();
+    }
     while (this.container.firstChild) {
       this.container.removeChild(this.container.firstChild);
     }
@@ -248,17 +282,21 @@ export class Comparator {
 
     this.fullScreenWrapper.appendChild(this.createLoadingSpinner());
     this.fullScreenWrapper.appendChild(wrapper);
-    this.fullScreenWrapper.appendChild(this.createMediaControls());
+    if (this.config.mediaControls !== false) {
+      this.fullScreenWrapper.appendChild(this.createMediaControls());
+    }
 
     this.leftPlayer = newPlayer(this.config.leftUrl, this.config.leftLaUrl, leftVideoWrapper.getElementsByTagName('video')[0], this.leftPlayerData.config);
     this.rightPlayer = newPlayer(this.config.rightUrl, this.config.rightLaUrl, rightVideoWrapper.getElementsByTagName('video')[0], this.rightPlayerData.config);
+
+    this.container.dispatchEvent(this.createdEvent);
   }
 
   private createVideoPlayer(player: 'left' | 'right'): HTMLDivElement {
     const videoWrapper = document.createElement('div');
     videoWrapper.className = `${Comparator.LIB_PREFIX}${player}-video-wrapper`;
     const videoElement = document.createElement('video');
-    videoElement.className = `${Comparator.LIB_PREFIX}video`;
+    videoElement.className = `${Comparator.LIB_PREFIX}${player}-video`;
     videoElement.muted = true;
     videoElement.autoplay = false;
     videoWrapper.appendChild(videoElement);
@@ -281,10 +319,6 @@ export class Comparator {
   }
 
   private createMediaControls(): HTMLDivElement {
-    if (this.config.mediaControls === false) {
-      return;
-    }
-
     const controls = document.createElement('div');
     controls.className = `${Comparator.LIB_PREFIX}media-controls`;
 
@@ -385,6 +419,10 @@ export class Comparator {
   }
 
   private populateQualitySelector(): void {
+    if (this.config.mediaControls === false) {
+      return;
+    }
+
     const popup = this.container.getElementsByClassName(`${Comparator.LIB_PREFIX}quality-selector-popup`)[0];
 
     while (popup.firstChild) {
@@ -405,13 +443,13 @@ export class Comparator {
     }
 
     if (data.config.initialRenditionIndex === Comparator.DEFAULT_QUALITY_INDEX &&
-        data.config.initialRenditionKbps === Comparator.DEFAULT_QUALITY_KBPS) {
+      data.config.initialRenditionKbps === Comparator.DEFAULT_QUALITY_KBPS) {
       data.config.initialRenditionIndex = renditions.length - 1;
       data.config.initialRenditionKbps = renditions[renditions.length - 1].bitrate / 1000;
     }
 
     const listItemAuto = document.createElement('li');
-    listItemAuto.innerHTML = `${ data.config.initialRenditionIndex === -1 ? '> ' : ''}Auto`;
+    listItemAuto.innerHTML = `${data.config.initialRenditionIndex === -1 ? '> ' : ''}Auto`;
     listItemAuto.onclick = () => this.setAutoRendition(player);
     sideElementList.appendChild(listItemAuto);
 
@@ -419,7 +457,7 @@ export class Comparator {
       const listItem = document.createElement('li');
       const selected = data.config.initialRenditionIndex === i ? '> ' : '';
       const [width, height, kbps] = [renditions[i].width, renditions[i].height, Math.round(renditions[i].bitrate / 1000)];
-      listItem.innerHTML = `${ selected }${ width }x${ height } (${ kbps } kbps)`;
+      listItem.innerHTML = `${selected}${width}x${height} (${kbps} kbps)`;
       listItem.className = currentRendition && renditions[i].bitrate === currentRendition.bitrate ? 'current' : '';
       listItem.onclick = () => this.setRendition(player, i, renditions[i].bitrate);
       sideElementList.appendChild(listItem);
@@ -427,7 +465,7 @@ export class Comparator {
 
     const sideElement = document.createElement('div');
     const side = player === this.leftPlayer ? 'LEFT' : 'RIGHT';
-    sideElement.innerHTML = `<p><b>${ side }</b></p>`;
+    sideElement.innerHTML = `<p><b>${side}</b></p>`;
     sideElement.appendChild(sideElementList);
     popup.appendChild(sideElement);
   }
@@ -457,21 +495,21 @@ export class Comparator {
       screenfull.on('change', this.onFullscreenChange);
     }
 
-    this.leftPlayer.htmlPlayer.oncanplaythrough = () => this.onCanPlayThrough('left');
-    this.leftPlayer.htmlPlayer.onended = () => this.onEnded();
-    this.leftPlayer.htmlPlayer.onloadstart = () => this.onLoadStart();
-    this.leftPlayer.htmlPlayer.onpause = () => this.onPause();
-    this.leftPlayer.htmlPlayer.onplay = () => this.onPlay();
-    this.leftPlayer.htmlPlayer.onseeked = () => this.onSeeked('left');
-    this.leftPlayer.htmlPlayer.onseeking = () => this.onSeeking();
-    this.leftPlayer.htmlPlayer.ontimeupdate = () => this.onTimeUpdate();
+    this.leftPlayer.htmlPlayer.addEventListener('canplaythrough', this.onCanPlayThrough);
+    this.leftPlayer.htmlPlayer.addEventListener('ended', this.onEnded);
+    this.leftPlayer.htmlPlayer.addEventListener('loadstart', this.onLoadStart);
+    this.leftPlayer.htmlPlayer.addEventListener('pause', this.onPause);
+    this.leftPlayer.htmlPlayer.addEventListener('play', this.onPlay);
+    this.leftPlayer.htmlPlayer.addEventListener('seeked', this.onSeeked);
+    this.leftPlayer.htmlPlayer.addEventListener('seeking', this.onSeeking);
+    this.leftPlayer.htmlPlayer.addEventListener('timeupdate', this.onTimeUpdate);
 
-    this.rightPlayer.htmlPlayer.oncanplaythrough = () => this.onCanPlayThrough('right');
-    this.rightPlayer.htmlPlayer.onended = () => this.onEnded();
-    this.leftPlayer.htmlPlayer.onpause = () => this.onPause();
-    this.leftPlayer.htmlPlayer.onplay = () => this.onPlay();
-    this.rightPlayer.htmlPlayer.onseeked = () => this.onSeeked('right');
-    this.rightPlayer.htmlPlayer.onseeking = () => this.onSeeking();
+    this.rightPlayer.htmlPlayer.addEventListener('canplaythrough', this.onCanPlayThrough);
+    this.rightPlayer.htmlPlayer.addEventListener('ended', this.onEnded);
+    this.leftPlayer.htmlPlayer.addEventListener('pause', this.onPause);
+    this.leftPlayer.htmlPlayer.addEventListener('play', this.onPlay);
+    this.rightPlayer.htmlPlayer.addEventListener('seeked', this.onSeeked);
+    this.rightPlayer.htmlPlayer.addEventListener('seeking', this.onSeeking);
 
     const wrapper = this.container.getElementsByClassName(`${Comparator.LIB_PREFIX}wrapper`)[0] as HTMLDivElement;
     const popupWrapper = this.container.getElementsByClassName(`${Comparator.LIB_PREFIX}quality-selector-popup-wrapper`)[0];
@@ -491,7 +529,9 @@ export class Comparator {
       if (!this.isSplitterSticked) {
         moveSplit(event);
       }
-      popupWrapper.classList.toggle('moving-split');
+      if (this.config.mediaControls !== false) {
+        popupWrapper.classList.toggle('moving-split');
+      }
       leftStatsWrappers.classList.toggle('moving-split');
       rightStatsWrappers.classList.toggle('moving-split');
     };
@@ -521,21 +561,21 @@ export class Comparator {
 
     clearInterval(this.statsInterval);
 
-    this.leftPlayer.htmlPlayer.oncanplaythrough = undefined;
-    this.leftPlayer.htmlPlayer.onended = undefined;
-    this.leftPlayer.htmlPlayer.onloadstart = undefined;
-    this.leftPlayer.htmlPlayer.onpause = undefined;
-    this.leftPlayer.htmlPlayer.onplay = undefined;
-    this.leftPlayer.htmlPlayer.onseeked = undefined;
-    this.leftPlayer.htmlPlayer.onseeking = undefined;
-    this.leftPlayer.htmlPlayer.ontimeupdate = undefined;
+    this.leftPlayer.htmlPlayer.removeEventListener('canplaythrough', this.onCanPlayThrough);
+    this.leftPlayer.htmlPlayer.removeEventListener('ended', this.onEnded);
+    this.leftPlayer.htmlPlayer.removeEventListener('loadstart', this.onLoadStart);
+    this.leftPlayer.htmlPlayer.removeEventListener('pause', this.onPause);
+    this.leftPlayer.htmlPlayer.removeEventListener('play', this.onPlay);
+    this.leftPlayer.htmlPlayer.removeEventListener('seeked', this.onSeeked);
+    this.leftPlayer.htmlPlayer.removeEventListener('seeking', this.onSeeking);
+    this.leftPlayer.htmlPlayer.removeEventListener('timeupdate', this.onTimeUpdate);
 
-    this.rightPlayer.htmlPlayer.oncanplaythrough = undefined;
-    this.rightPlayer.htmlPlayer.onended = undefined;
-    this.leftPlayer.htmlPlayer.onpause = undefined;
-    this.leftPlayer.htmlPlayer.onplay = undefined;
-    this.rightPlayer.htmlPlayer.onseeked = undefined;
-    this.rightPlayer.htmlPlayer.onseeking = undefined;
+    this.rightPlayer.htmlPlayer.removeEventListener('canplaythrough', this.onCanPlayThrough);
+    this.rightPlayer.htmlPlayer.removeEventListener('ended', this.onEnded);
+    this.leftPlayer.htmlPlayer.removeEventListener('pause', this.onPause);
+    this.leftPlayer.htmlPlayer.removeEventListener('play', this.onPlay);
+    this.rightPlayer.htmlPlayer.removeEventListener('seeked', this.onSeeked);
+    this.rightPlayer.htmlPlayer.removeEventListener('seeking', this.onSeeking);
 
     const wrapper = this.container.getElementsByClassName(`${Comparator.LIB_PREFIX}wrapper`)[0] as HTMLDivElement;
     wrapper.onmousemove = undefined;
@@ -545,19 +585,19 @@ export class Comparator {
     window.removeEventListener('resize', this.resizePlayers);
   }
 
-  private onCanPlayThrough(player: 'left' | 'right') {
+  private onCanPlayThrough = (evt: Event): void => {
     if (!this.leftPlayerData.isInitialized || !this.rightPlayerData.isInitialized) {
-      if (player === 'left') {
+      if ((evt.target as HTMLVideoElement).classList.contains(`${Comparator.LIB_PREFIX}left-video`)) {
         this.leftPlayerData.isInitialized = true;
         this.leftPlayerData.duration = this.leftPlayer.htmlPlayer.duration;
-        this.leftPlayer.htmlPlayer.oncanplay = undefined;
+        this.leftPlayer.htmlPlayer.oncanplaythrough = undefined;
         if (this.rightPlayerData.isInitialized) {
           this.onCanPlayThroughBoth();
         }
       } else {
         this.rightPlayerData.isInitialized = true;
         this.rightPlayerData.duration = this.leftPlayer.htmlPlayer.duration;
-        this.rightPlayer.htmlPlayer.oncanplay = undefined;
+        this.rightPlayer.htmlPlayer.oncanplaythrough = undefined;
         if (this.leftPlayerData.isInitialized) {
           this.onCanPlayThroughBoth();
         }
@@ -572,21 +612,25 @@ export class Comparator {
     this.updatePlayersData();
     if (this.config.autoplay !== false) {
       this.play();
+    } else {
+      setTimeout(() => {
+        this.pause();
+      }, 1000);
     }
   }
 
-  private onEnded(): void {
+  private onEnded = (evt: Event): void => {
     if (this.config.loop !== false) {
       this.reload();
     }
   }
 
-  private onLoadStart() {
+  private onLoadStart = (evt: Event): void => {
     this.container.classList.add('loaded-metadata');
-    this.leftPlayer.htmlPlayer.oncanplay = undefined;
   }
 
-  private onSeeked(player: 'left' | 'right'): void {
+  private onSeeked = (evt: Event): void => {
+    const player = (evt.target as HTMLVideoElement).classList.contains(`${Comparator.LIB_PREFIX}left-video`) ? 'left' : 'right';
     if (player === 'left' && !this.rightPlayer.htmlPlayer.seeking || player === 'right' && !this.leftPlayer.htmlPlayer.seeking) {
       this.play();
     } else {
@@ -595,13 +639,12 @@ export class Comparator {
     }
   }
 
-  private onSeeking(): void {
+  private onSeeking = (evt: Event): void => {
     this.pause();
     this.showSpinner();
   }
 
-  private onPlay() {
-    this.play();
+  private onPlay = (evt: Event): void => {
     const playPause = this.container.getElementsByClassName(`${Comparator.LIB_PREFIX}play-pause`)[0] as HTMLDivElement;
     if (playPause !== undefined) {
       playPause.classList.add('playing');
@@ -609,8 +652,7 @@ export class Comparator {
     }
   }
 
-  private onPause() {
-    this.pause();
+  private onPause = (evt: Event): void => {
     const playPause = this.container.getElementsByClassName(`${Comparator.LIB_PREFIX}play-pause`)[0] as HTMLDivElement;
     if (playPause !== undefined) {
       playPause.classList.remove('playing');
@@ -618,7 +660,7 @@ export class Comparator {
     }
   }
 
-  private onTimeUpdate() {
+  private onTimeUpdate = (evt: Event): void => {
     if (!this.pidController) {
       this.setPidController();
     }
@@ -697,6 +739,18 @@ export class Comparator {
   private toggleFullScreenClasses(): void {
     this.container.getElementsByClassName(`${Comparator.LIB_PREFIX}wrapper`)[0].classList.toggle('full-screen-mode');
     this.container.getElementsByClassName(`${Comparator.LIB_PREFIX}media-controls`)[0].classList.toggle('full-screen-mode');
+
+    if (this.isFullScreen === true) {
+      const width = this.leftPlayer.htmlPlayer.videoWidth;
+      const height = this.leftPlayer.htmlPlayer.videoHeight;
+      const maxWidth = `calc(100vh * ${width} / ${height} - 100px)`;
+
+      (this.container.getElementsByClassName(`${Comparator.LIB_PREFIX}wrapper`)[0] as HTMLDivElement).style.maxWidth = maxWidth;
+      (this.container.getElementsByClassName(`${Comparator.LIB_PREFIX}media-controls`)[0] as HTMLDivElement).style.maxWidth = maxWidth;
+    } else {
+      (this.container.getElementsByClassName(`${Comparator.LIB_PREFIX}wrapper`)[0] as HTMLDivElement).style.maxWidth = 'unset';
+      (this.container.getElementsByClassName(`${Comparator.LIB_PREFIX}media-controls`)[0] as HTMLDivElement).style.maxWidth = 'unset';
+    }
   }
 
   private resizePlayers = () => {
