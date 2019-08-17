@@ -250,8 +250,8 @@ export class Comparator {
     this.fullScreenWrapper.appendChild(wrapper);
     this.fullScreenWrapper.appendChild(this.createMediaControls());
 
-    this.leftPlayer = newPlayer(this.config.leftUrl, leftVideoWrapper.getElementsByTagName('video')[0], this.leftPlayerData.config);
-    this.rightPlayer = newPlayer(this.config.rightUrl, rightVideoWrapper.getElementsByTagName('video')[0], this.rightPlayerData.config);
+    this.leftPlayer = newPlayer(this.config.leftUrl, this.config.leftLaUrl, leftVideoWrapper.getElementsByTagName('video')[0], this.leftPlayerData.config);
+    this.rightPlayer = newPlayer(this.config.rightUrl, this.config.rightLaUrl, rightVideoWrapper.getElementsByTagName('video')[0], this.rightPlayerData.config);
   }
 
   private createVideoPlayer(player: 'left' | 'right'): HTMLDivElement {

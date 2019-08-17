@@ -3,8 +3,10 @@ import { IPlayerConfig, IRendition } from '@epiclabs/epic-video-player';
 export interface IComparatorConfig {
   autoplay?: boolean;
   leftUrl: string;
+  leftLaUrl: string;
   loop?: boolean;
   rightUrl: string;
+  rightLaUrl: string;
   mediaControls?: boolean;
   stats?: IStatsConfig | boolean;
 }
